@@ -1,0 +1,420 @@
+complete pipeline using jenkins
+
+
+ stage('docker build and push') {
+             steps {
+                 script {
+                     withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                     sh 'docker build -t papa .'
+                     sh 'docker tag papa srujan2102/repo'
+                     sh 'docker push srujan2102/repo'
+                     }
+                 }
+                 
+             }
+
+
+
+============================================================================================================================
+
+
+
+
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk-17'
+        maven 'maven'
+    }
+        environment {
+        NEXUS_VERSION        = "nexus3"
+        NEXUS_PROTOCOL       = "http"
+        NEXUS_URL            = "3.144.185.29:8081"
+        NEXUS_REPOSITORY     = "nexus"
+        NEXUS_CREDENTIAL_ID = "nexus-login"
+        ARTVERSION           = "${BUILD_ID}"
+    }
+
+    
+    stages {
+        stage("git-checkout") {
+            steps {
+                checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'github-login', url: 'https://github.com/saikkumar1606/JavaWebCalculator.git']])
+            }
+        }
+        stage("maven package") {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+        stage('Upload Artifact to Nexus') {
+            steps {
+                nexusArtifactUploader(
+                    nexusVersion: "${NEXUS_VERSION}",
+                    protocol: "${NEXUS_PROTOCOL}",
+                    nexusUrl: "${NEXUS_URL}",
+                    version: "${ARTVERSION}",
+                    groupId: "com",
+                    repository: "${NEXUS_REPOSITORY}",
+                    credentialsId: "${NEXUS_CREDENTIAL_ID}",
+                    artifacts: [[
+                        artifactId: "webapp",
+                        classifier: "",
+                        file: "target/webapp-0.1.war",
+                        type: "war"
+                    ]]
+                )
+            }
+        }
+    }
+}
+
+
+
+
+
+==========================================================================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk-17'
+        maven 'maven'
+    }
+        environment {
+        NEXUS_VERSION        = "nexus3"
+        NEXUS_PROTOCOL       = "http"
+        NEXUS_URL            = "3.144.185.29:8081"
+        NEXUS_REPOSITORY     = "nexus"
+        NEXUS_CREDENTIAL_ID = "nexus-login"
+        ARTVERSION           = "${BUILD_ID}"
+        DOCKER_IMAGE         = "saikkumar1606/java"
+        IMAGE_TAG            = "${BUILD_NUMBER}"
+    }
+
+    
+    stages {
+        stage("git-checkout") {
+            steps {
+                checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'github-login', url: 'https://github.com/saikkumar1606/JavaWebCalculator.git']])
+            }
+        }
+        stage("maven package") {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+        stage('Upload Artifact to Nexus') {
+            steps {
+                nexusArtifactUploader(
+                    nexusVersion: "${NEXUS_VERSION}",
+                    protocol: "${NEXUS_PROTOCOL}",
+                    nexusUrl: "${NEXUS_URL}",
+                    version: "${ARTVERSION}",
+                    groupId: "com",
+                    repository: "${NEXUS_REPOSITORY}",
+                    credentialsId: "${NEXUS_CREDENTIAL_ID}",
+                    artifacts: [[
+                        artifactId: "webapp",
+                        classifier: "",
+                        file: "target/webapp-0.1.war",
+                        type: "war"
+                    ]]
+                )
+            }
+        }
+        stage("docker-build and push") {
+            steps {
+                script {
+                    def image = docker.build("${DOCKER_IMAGE}:${IMAGE_TAG}")
+                    docker.withRegistry('https://index.docker.io/v1/', 'docker-login') {
+                        image.push()
+                    }
+                }
+            }
+        }
+        stage('Docker Image Scan with Trivy') {
+            steps {
+                echo "Scanning Docker image with Trivy: ${DOCKER_IMAGE}:${IMAGE_TAG}"
+                sh '''
+                    IMAGE_NAME="${DOCKER_IMAGE}:${IMAGE_TAG}"
+                    echo "Scanning image: $IMAGE_NAME"
+                    docker run --rm \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v $HOME/.cache/trivy:/root/.cache/ \
+                        -v $WORKSPACE:/app \
+                        aquasec/trivy:latest \
+                        image --exit-code 0 --severity CRITICAL,HIGH \
+                        -f json -o /app/trivy-report.json \
+                        "$IMAGE_NAME"
+                '''
+                sh 'ls -lh trivy-report.json'
+            }
+        }
+    }
+    post {
+        always {
+            echo 'Archiving Trivy report and sending Slack notification...'
+            archiveArtifacts artifacts: 'trivy-report.json'
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+=========================================================================================================================================
+
+
+
+
+
+
+
+
+
+
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk-17'
+        maven 'maven'
+    }
+        environment {
+        NEXUS_VERSION        = "nexus3"
+        NEXUS_PROTOCOL       = "http"
+        NEXUS_URL            = "3.144.185.29:8081"
+        NEXUS_REPOSITORY     = "nexus"
+        NEXUS_CREDENTIAL_ID = "nexus-login"
+        ARTVERSION           = "${BUILD_ID}"
+        DOCKER_IMAGE         = "saikkumar1606/java"
+        IMAGE_TAG            = "${BUILD_NUMBER}"
+    }
+
+    
+    stages {
+        stage("git-checkout") {
+            steps {
+                checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'github-login', url: 'https://github.com/saikkumar1606/JavaWebCalculator.git']])
+            }
+        }
+        stage("maven package") {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+        stage('Upload Artifact to Nexus') {
+            steps {
+                nexusArtifactUploader(
+                    nexusVersion: "${NEXUS_VERSION}",
+                    protocol: "${NEXUS_PROTOCOL}",
+                    nexusUrl: "${NEXUS_URL}",
+                    version: "${ARTVERSION}",
+                    groupId: "com",
+                    repository: "${NEXUS_REPOSITORY}",
+                    credentialsId: "${NEXUS_CREDENTIAL_ID}",
+                    artifacts: [[
+                        artifactId: "webapp",
+                        classifier: "",
+                        file: "target/webapp-0.1.war",
+                        type: "war"
+                    ]]
+                )
+            }
+        }
+        stage("docker-build and push") {
+            steps {
+                script {
+                    def image = docker.build("${DOCKER_IMAGE}:${IMAGE_TAG}")
+                    docker.withRegistry('https://index.docker.io/v1/', 'docker-login') {
+                        image.push()
+                    }
+                }
+            }
+        }
+        stage('Docker Image Scan with Trivy') {
+            steps {
+                echo "Scanning Docker image with Trivy: ${DOCKER_IMAGE}:${IMAGE_TAG}"
+                sh '''
+                    IMAGE_NAME="${DOCKER_IMAGE}:${IMAGE_TAG}"
+                    echo "Scanning image: $IMAGE_NAME"
+                    docker run --rm \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v $HOME/.cache/trivy:/root/.cache/ \
+                        -v $WORKSPACE:/app \
+                        aquasec/trivy:latest \
+                        image --exit-code 0 --severity CRITICAL,HIGH \
+                        -f json -o /app/trivy-report.json \
+                        "$IMAGE_NAME"
+                '''
+                sh 'ls -lh trivy-report.json'
+            }
+        }
+        stage("eks-deploy") {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'aws-credentials', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh '''
+                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                        export AWS_DEFAULT_REGION=ap-south-1
+
+                        echo "Setting up KUBECONFIG for EKS cluster..."
+                        aws eks update-kubeconfig --region ap-south-1 --name my-cluster
+
+                        echo "Deploying to Amazon EKS..."
+                        sed -i "s|image: .*|image: ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}|g" k8s/deployment.yaml
+
+                        kubectl apply -f k8s/
+                    '''
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            echo 'Archiving Trivy report and sending Slack notification...'
+            archiveArtifacts artifacts: 'trivy-report.json'
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+=========================================================================================================================================
+
+
+
+
+basa--------06/07/2025------------pipeline
+
+
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk17'
+        maven 'maven'
+    }
+        environment {
+        NEXUS_VERSION        = "nexus3"
+        NEXUS_PROTOCOL       = "http"
+        NEXUS_URL            = "56.155.141.245:8081"
+        NEXUS_REPOSITORY     = "maven-artifact-nexus"
+        NEXUS_CREDENTIAL_ID = "nexus-login"
+        ARTVERSION           = "${BUILD_ID}"
+        IMAGE_TAG           = "${BUILD_NUMBER}"
+
+    }
+    stages {
+        stage('git-checkout') {
+            steps {
+                checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'github-login', url: 'https://github.com/saikkumar1606/JavaWebCalculator.git']])
+            }
+        }
+        stage('maven') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+        stage('Upload Artifact to Nexus') {
+            steps {
+                nexusArtifactUploader(
+                    nexusVersion: "${NEXUS_VERSION}",
+                    protocol: "${NEXUS_PROTOCOL}",
+                    nexusUrl: "${NEXUS_URL}",
+                    version: "${ARTVERSION}",
+                    groupId: "com",
+                    repository: "${NEXUS_REPOSITORY}",
+                    credentialsId: "${NEXUS_CREDENTIAL_ID}",
+                    artifacts: [[
+                        artifactId: "webapp",
+                        classifier: "",
+                        file: "target/webapp-0.1.war",
+                        type: "war"
+                    ]]
+                )
+            }
+        }
+        stage('docker-push-&build') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker' , toolName: 'docker') {
+                        sh 'docker build -t java:${IMAGE_TAG} .'
+                        sh 'docker tag java:${IMAGE_TAG} saikkumar1606/java:${IMAGE_TAG}'
+                        sh 'docker push saikkumar1606/java:${IMAGE_TAG}'
+                    }
+                }
+            }
+        }
+        stage('Docker Image Scan with Trivy') {
+            steps {
+                echo "Scanning Docker image with Trivy: java:${IMAGE_TAG}"
+                sh '''
+                    IMAGE_NAME="saikkumar1606/java:${IMAGE_TAG}"
+                    echo "Scanning image: $IMAGE_NAME"
+                    docker run --rm \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v $HOME/.cache/trivy:/root/.cache/ \
+                        -v $WORKSPACE:/app \
+                        aquasec/trivy:latest \
+                        image --exit-code 0 --severity CRITICAL,HIGH \
+                        -f json -o /app/trivy-report.json \
+                        "$IMAGE_NAME"
+                '''
+                sh 'ls -lh trivy-report.json'
+            }
+        }
+    }
+}
