@@ -418,3 +418,101 @@ pipeline {
         }
     }
 }
+
+
+
+
+
+==========================================================================================================
+
+
+
+
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk-17'
+        maven 'maven'
+    }
+        environment {
+        NEXUS_VERSION        = "nexus3"
+        NEXUS_PROTOCOL       = "http"
+        NEXUS_URL            = "16.16.56.102:8081"
+        NEXUS_REPOSITORY     = "nexus"
+        NEXUS_CREDENTIAL_ID = "nexus-login"
+        ARTVERSION           = "${BUILD_ID}"
+        NAME                 = "saikkumar1606/helm"
+        IMAGE_TAG            = "${BUILD_NUMBER}"
+        
+        
+    }
+    stages {
+        stage("Git-checkout") {
+            steps {
+                checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'github-login', url: 'https://github.com/saikkumar1606/JavaWebCalculator.git']])
+            }
+        }
+        stage("Maven") {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+        stage("Sonar") {
+            steps {
+                withSonarQubeEnv ('sonar') {
+                    sh 'mvn sonar:sonar'
+                }
+            }
+        }
+        stage('Upload Artifact to Nexus') {
+            steps {
+                nexusArtifactUploader(
+                    nexusVersion: "${NEXUS_VERSION}",
+                    protocol: "${NEXUS_PROTOCOL}",
+                    nexusUrl: "${NEXUS_URL}",
+                    version: "${ARTVERSION}",
+                    groupId: "com",
+                    repository: "${NEXUS_REPOSITORY}",
+                    credentialsId: "${NEXUS_CREDENTIAL_ID}",
+                    artifacts: [[
+                        artifactId: "webapp",
+                        classifier: "",
+                        file: "target/webapp-0.1.war",
+                        type: "war"
+                    ]]
+                )
+            }
+        }
+        stage("Docker") {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker' , toolName: 'docker') {
+                        sh 'docker build -t ${NAME}:${IMAGE_TAG} .'
+                        sh 'docker tag ${NAME}:${IMAGE_TAG} saikkumar1606/helm:${IMAGE_TAG}'
+                        sh 'docker push saikkumar1606/helm:${IMAGE_TAG}'
+                    }
+                }
+            }
+        }
+        stage("eks-deployment") {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'eks', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh '''
+                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                        export AWS_DEFAULT_REGION=us-east-2
+
+                        echo "Setting up KUBECONFIG for EKS cluster..."
+                        aws eks update-kubeconfig --region us-east-2 --name eks-cluster
+
+                        echo "Deploying to Amazon EKS..."
+                        sed -i "s|image: .*|image: ${NAME}:${IMAGE_TAG}|g" k8s/deployment.yaml
+
+                        kubectl apply -f k8s/
+                    '''
+                }
+            }
+        }
+    }
+}
