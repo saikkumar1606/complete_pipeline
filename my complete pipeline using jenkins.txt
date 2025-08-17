@@ -517,3 +517,22 @@ pipeline {
         }
     }
 }
+==========================================================================================================
+
+SOnarQube pipeline code for javaweb
+
+
+stage('sonar') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                        sh """
+                            mvn clean verify sonar:sonar \
+                              -Dsonar.projectKey=webapp \
+                              -Dsonar.host.url=$SONAR_HOST_URL \
+                              -Dsonar.login=$SONAR_TOKEN
+                        """
+                    }
+                }
+            }
+        }
